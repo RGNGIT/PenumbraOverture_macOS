@@ -59,6 +59,10 @@ cPlayer::cPlayer(cInit *apInit)  : iUpdateable("Player")
 	mfTimeSinceSafePositionUpdate = 0;
 	mbHasSafePosition = false;
 
+	mbConsoleActive = false;
+	msConsoleBuffer = "";
+	mbConsoleTogglePrevDown = false;
+
 	mpScene = apInit->mpGame->GetScene();
 	mpGraphics = apInit->mpGame->GetGraphics();
 	mpGfxDrawer = mpGraphics->GetDrawer();
@@ -1338,10 +1342,15 @@ void cPlayer::Update(float afTimeStep)
 	lTime = pSystem->GetLowLevel()->GetTime();
 	//LogUpdate("  Movement\n");
 
-	if(mbMoving==false)	
-		mvMoveStates[mMoveState]->Stop();
+	UpdateConsole(afTimeStep);
 
-	mvMoveStates[mMoveState]->Update(afTimeStep);
+	if(mbConsoleActive==false)
+	{
+		if(mbMoving==false)	
+			mvMoveStates[mMoveState]->Stop();
+
+		mvMoveStates[mMoveState]->Update(afTimeStep);
+	}
 	mpHeadMove->Update(afTimeStep);
 
 	mbMoving = false;
@@ -1378,13 +1387,16 @@ void cPlayer::Update(float afTimeStep)
 	//LogUpdate("  took %d ms\n",pSystem->GetLowLevel()->GetTime() - lTime);
 	lTime = pSystem->GetLowLevel()->GetTime();
 	//LogUpdate("  state %d\n",mState);
+
 	if(mpInit->mpInventory->IsActive() ==false && 
-		mpInit->mpNotebook->IsActive()==false)
+		mpInit->mpNotebook->IsActive()==false &&
+		mbConsoleActive==false)
 	{
 		mvStates[mState]->OnUpdate(afTimeStep);
 	}
 	//LogUpdate("  took %d ms\n",pSystem->GetLowLevel()->GetTime() - lTime);
 }
+
 
 //-----------------------------------------------------------------------
 
@@ -1754,6 +1766,160 @@ void cPlayer::OnDraw()
 															sPortals.c_str());*/
 	
 	mvStates[mState]->OnDraw();
+
+	DrawConsole();
+}
+
+//-----------------------------------------------------------------------
+
+// Dev console (debug tool added for this ARM64 port - not part of the
+// original game). Toggled with the backquote/tilde key. Whatever text is
+// typed gets fed directly into RunScriptCommand() when Enter is pressed -
+// the same mechanism the level scripts themselves use to call things like
+// SetGlobalVar/GiveItem/AddPickupCallback, so anything a .hps script can do,
+// this console can do too.
+void cPlayer::UpdateConsole(float afTimeStep)
+{
+	iKeyboard *pKeyboard = mpInit->mpGame->GetInput()->GetKeyboard();
+
+	// Toggle on the rising edge only (KeyIsDown reflects live physical state,
+	// not the auto-repeating press queue) - the queue-based press events for
+	// this key fire repeatedly for as long as it's held (key repeat is on
+	// for this whole game), which would otherwise flip the console open and
+	// shut many times over a single press-and-hold.
+	bool bToggleDown = pKeyboard->KeyIsDown(eKey_BACKQUOTE);
+	if(bToggleDown && !mbConsoleTogglePrevDown)
+	{
+		mbConsoleActive = !mbConsoleActive;
+		msConsoleBuffer = "";
+	}
+	mbConsoleTogglePrevDown = bToggleDown;
+
+	while(pKeyboard->KeyIsPressed())
+	{
+		cKeyPress key = pKeyboard->GetKey();
+
+		if(mbConsoleActive)
+		{
+			static int lKeyLogCount = 0;
+			if(lKeyLogCount < 100)
+			{
+				lKeyLogCount++;
+				Log("Console key: mKey=%d unicode=%d modifier=%d\n", (int)key.mKey, key.mlUnicode, key.mlModifier);
+			}
+		}
+
+		if(key.mKey == eKey_BACKQUOTE)
+		{
+			// Already handled above via KeyIsDown edge detection - just
+			// drain it from the queue so it doesn't fall through and get
+			// typed as a literal backquote character.
+		}
+		else if(mbConsoleActive)
+		{
+			if(key.mKey == eKey_RETURN || key.mKey == eKey_KP_ENTER)
+			{
+				if(msConsoleBuffer != "")
+				{
+					mvConsoleHistory.push_back("> " + msConsoleBuffer);
+					if(mvConsoleHistory.size() > 12) mvConsoleHistory.erase(mvConsoleHistory.begin());
+
+					// Basic sanity check before handing this to AngelScript's
+					// ExecuteString: require balanced, non-empty parentheses
+					// (i.e. it at least looks like a function call). Feeding
+					// it clearly-malformed text (no parens at all, e.g. from
+					// random typing) has been observed to hang the AngelScript
+					// parser rather than failing gracefully - this is a
+					// latent bug in a code path (its own error handling) that
+					// nothing in the original game ever exercised, since
+					// every other script command comes from well-formed .hps
+					// files, never typed-by-hand text. Rejecting obviously
+					// malformed input here avoids hitting that path at all.
+					int lParenDepth = 0;
+					bool bHasParen = false;
+					bool bBalanced = true;
+					for(size_t i=0; i<msConsoleBuffer.size(); ++i)
+					{
+						if(msConsoleBuffer[i] == '(') { lParenDepth++; bHasParen = true; }
+						else if(msConsoleBuffer[i] == ')')
+						{
+							lParenDepth--;
+							if(lParenDepth < 0) { bBalanced = false; break; }
+						}
+					}
+					if(lParenDepth != 0) bBalanced = false;
+
+					if(bHasParen && bBalanced)
+					{
+						mpInit->RunScriptCommand(msConsoleBuffer);
+					}
+					else
+					{
+						mvConsoleHistory.push_back("(rejected - not a valid function call)");
+						if(mvConsoleHistory.size() > 12) mvConsoleHistory.erase(mvConsoleHistory.begin());
+					}
+
+					msConsoleBuffer = "";
+				}
+			}
+			else if(key.mKey == eKey_BACKSPACE)
+			{
+				if(msConsoleBuffer.size() > 0) msConsoleBuffer.resize(msConsoleBuffer.size()-1);
+			}
+			else if(key.mKey == eKey_ESCAPE)
+			{
+				mbConsoleActive = false;
+			}
+			else if(key.mlUnicode >= 32 && key.mlUnicode < 127)
+			{
+				msConsoleBuffer += (char)key.mlUnicode;
+				Log("Console buffer now: '%s' (len=%d)\n", msConsoleBuffer.c_str(), (int)msConsoleBuffer.size());
+			}
+		}
+	}
+}
+
+//-----------------------------------------------------------------------
+
+void cPlayer::DrawConsole()
+{
+	if(mbConsoleActive == false) return;
+
+	if(msConsoleBuffer != "")
+	{
+		static int lDrawLogCount = 0;
+		if(lDrawLogCount < 20)
+		{
+			lDrawLogCount++;
+			Log("DrawConsole rendering buffer: '%s'\n", msConsoleBuffer.c_str());
+		}
+	}
+
+	cGraphics *pGraphics = mpInit->mpGame->GetGraphics();
+	cVector2f vScreenSize = pGraphics->GetLowLevel()->GetScreenSize();
+
+	iLowLevelGraphics *pLowLevel = pGraphics->GetLowLevel();
+
+	float fConsoleHeight = 220;
+
+	tVertexVec vQuad;
+	cColor bgColor(0,0,0,0.75f);
+	vQuad.push_back(cVertex(cVector3f(0,0,0), bgColor));
+	vQuad.push_back(cVertex(cVector3f(vScreenSize.x,0,0), bgColor));
+	vQuad.push_back(cVertex(cVector3f(vScreenSize.x,fConsoleHeight,0), bgColor));
+	vQuad.push_back(cVertex(cVector3f(0,fConsoleHeight,0), bgColor));
+	pLowLevel->DrawQuad(vQuad);
+
+	float fY = 4;
+	for(size_t i=0; i<mvConsoleHistory.size(); ++i)
+	{
+		mpFont->Draw(cVector3f(6,fY,0),12,cColor(1,1,1,1),eFontAlign_Left,
+			L"%ls", cString::To16Char(mvConsoleHistory[i]).c_str());
+		fY += 14;
+	}
+
+	mpFont->Draw(cVector3f(6,fConsoleHeight-18,0),12,cColor(1,1,0.4f,1),eFontAlign_Left,
+		L"%ls", cString::To16Char("> " + msConsoleBuffer + "_").c_str());
 }
 
 void cPlayer::OnPostSceneDraw()

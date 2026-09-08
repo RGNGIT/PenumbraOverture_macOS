@@ -21,6 +21,8 @@
 
 #include "StdAfx.h"
 
+#include <vector>
+
 using namespace hpl;
 
 #include "GameTypes.h"
@@ -213,6 +215,11 @@ public:
 	void OnPostSceneDraw();
 
 	/////////////////////////////////////////
+	// Dev console (debug tool for this port - not part of the original game)
+	void UpdateConsole(float afTimeStep);
+	void DrawConsole();
+
+	/////////////////////////////////////////
 	//Saving
 
 	void AddSaveData(cSavedWorld* apSavedWorld);
@@ -382,6 +389,12 @@ private:
 	iLowLevelHaptic *mpLowLevelHaptic;
 
 	iFontData *mpFont;
+
+	// Dev console (debug tool for this port - not part of the original game)
+	bool mbConsoleActive;
+	tString msConsoleBuffer;
+	std::vector<tString> mvConsoleHistory;
+	bool mbConsoleTogglePrevDown;
 
 	cNode3D mFeetNode;
 

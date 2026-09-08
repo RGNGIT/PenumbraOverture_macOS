@@ -21,6 +21,7 @@
 
 #include "Init.h"
 #include "Player.h"
+#include "GameItem.h"
 #include "EffectHandler.h"
 #include "GameLadder.h"
 
@@ -68,7 +69,7 @@ void cPlayerState_Normal::OnUpdate(float afTimeStep)
 
 	{
 		static int lLogCount = 0;
-		if(lLogCount < 200)
+		if(lLogCount < 5000)
 		{
 			lLogCount++;
 			Log("PlayerState_Misc pick: PickedBody=%s\n",
@@ -79,6 +80,19 @@ void cPlayerState_Normal::OnUpdate(float afTimeStep)
 	if(mpPlayer->GetPickedBody())
 	{
 		iGameEntity *pEntity = (iGameEntity*)mpPlayer->GetPickedBody()->GetUserData();
+
+		if(pEntity && pEntity->GetName() == "cottonstrings")
+		{
+			static int lTypeLogCount = 0;
+			if(lTypeLogCount < 5)
+			{
+				lTypeLogCount++;
+				cGameItem *pAsItem = dynamic_cast<cGameItem*>(pEntity);
+				Log("cottonstrings ENTITY: name='%s' isGameItem=%d description='%s'\n",
+					pEntity->GetName().c_str(), (pAsItem != NULL),
+					cString::To8Char(pEntity->GetDescription()).c_str());
+			}
+		}
 		
 		//Set cross hair state
 		eCrossHairState CrossState = pEntity->GetPickCrossHairState(mpPlayer->GetPickedBody());
