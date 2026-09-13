@@ -887,6 +887,10 @@ void cInit::Exit()
 
 void cInit::RunScriptCommand(const tString& asCommand)
 {
+	static int lRunScriptCommandCallCount = 0;
+	lRunScriptCommandCallCount++;
+	Log("cInit::RunScriptCommand call #%d: '%s'\n", lRunScriptCommandCallCount, asCommand.c_str());
+
 	if(asCommand[0]=='@')
 	{
 		if(mpGlobalScript && mpGlobalScript->Run(cString::Sub(asCommand,1))==false)

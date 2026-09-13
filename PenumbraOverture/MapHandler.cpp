@@ -1780,7 +1780,13 @@ void cMapHandler::UpdateTimers(float afTimeStep)
 			if(pTimer->mfTime <= 0)
 			{
 				tString sCommand = pTimer->msCallback + "(\""+pTimer->msName+"\")";
+
+				Log("cMapHandler::UpdateTimers about to run: '%s' (timer name='%s', global=%d)\n",
+					sCommand.c_str(), pTimer->msName.c_str(), (int)pTimer->mbGlobal);
+
 				mpInit->RunScriptCommand(sCommand);	
+
+				Log("cMapHandler::UpdateTimers finished: '%s'\n", sCommand.c_str());
 
 				it = mlstTimers.erase(it);
 				hplDelete( pTimer );
